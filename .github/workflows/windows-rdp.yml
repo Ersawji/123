@@ -1,7 +1,7 @@
-name: Windows RDP with Audio Support
+name: Windows RDP (Debugged)
 
 on:
-  workflow_dispatch: # Allows you to run this manually from the Actions tab
+  workflow_dispatch:
 
 jobs:
   rdp-runner:
@@ -9,49 +9,51 @@ jobs:
     timeout-minutes: 360 # 6 hours max
 
     steps:
+    # 1. Checkout Code
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # --- AUDIO SETUP (Experimental) ---
-    - name: Install VB-Cable (Virtual Audio Driver)
+    # 2. Install VB-Cable (Audio Fix) - ERROR PROOFED
+    - name: Install Audio Driver (VB-Cable)
       run: |
+        # Install the virtual audio driver
         choco install vb-cable -y
-        Write-Host "VB-Cable installed. Attempting to restart Audio Service..."
-    
-    - name: Enable and Start Windows Audio Service
-      run: |
-        # Set Audio Service to Automatic and Start it
-        Set-Service -Name Audiosrv -StartupType Automatic
-        Start-Service -Name Audiosrv
-        Get-Service -Name Audiosrv | Select-Object Status, StartType
         
-        # Verify Audio Device presence (Headless VMs often lack this, VB-Cable tries to fix it)
-        Get-PnpDevice -Class AudioEndpoint | Select-Object Status, Class, FriendlyName
+        # Try to start the Windows Audio service, but don't crash if it fails
+        Set-Service -Name Audiosrv -StartupType Automatic
+        Start-Service -Name Audiosrv -ErrorAction SilentlyContinue
+        
+        Write-Host "Audio driver installation attempted."
+      continue-on-error: true # <--- CRITICAL FIX: This keeps the runner alive even if audio fails
 
-    # --- CHROME REMOTE DESKTOP SETUP ---
-    - name: Install and Configure Chrome Remote Desktop
+    # 3. Setup Chrome Remote Desktop
+    - name: Setup Chrome Remote Desktop
       env:
         CRD_CMD: ${{ secrets.CRD_POWER_SHELL_COMMAND }}
       run: |
+        # Check if the secret exists first
         if (-not $env:CRD_CMD) {
-          Write-Error "Error: CRD_POWER_SHELL_COMMAND secret is missing!"
+          Write-Error "Error: The secret CRD_POWER_SHELL_COMMAND is missing!"
           exit 1
         }
-        
-        # Execute the Google CRD command passed via secrets
+
+        # Run the command
         Invoke-Expression $env:CRD_CMD
         
-        Write-Host "Chrome Remote Desktop setup complete."
+        Write-Host "Chrome Remote Desktop installed successfully."
 
-    # --- KEEP ALIVE ---
-    - name: Keep Runner Alive (6 Hours)
+    # 4. Keep Alive Loop
+    - name: Keep Runner Alive
       run: |
-        Write-Host "RDP is ready! connect via https://remotedesktop.google.com/access"
-        Write-Host "This session will stay alive for 6 hours or until you cancel it."
+        Write-Host "--------------------------------------------------------"
+        Write-Host "SUCCESS! You can now connect."
+        Write-Host "Go to: https://remotedesktop.google.com/access"
+        Write-Host "--------------------------------------------------------"
+        
         $seconds = 21600 # 6 hours
         while ($seconds -gt 0) {
           Start-Sleep -Seconds 60
           $seconds -= 60
-          Write-Host "Time remaining: $([math]::Round($seconds / 60)) minutes..."
+          Write-Host "Runner is active. Time remaining: $([math]::Round($seconds / 60)) minutes..."
         }
         
