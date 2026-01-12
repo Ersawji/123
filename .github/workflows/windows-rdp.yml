@@ -1,4 +1,4 @@
-name: Windows RDP (Rescue Mode)
+name: Windows RDP (Universal Fix)
 
 on:
   workflow_dispatch:
@@ -14,7 +14,6 @@ jobs:
       uses: actions/checkout@v4
 
     # 2. Install Audio Driver (VB-Cable)
-    # We use continue-on-error so this never stops the build
     - name: Install Audio Driver
       run: |
         choco install vb-cable -y
@@ -22,30 +21,49 @@ jobs:
         Start-Service -Name Audiosrv -ErrorAction SilentlyContinue
       continue-on-error: true
 
-    # 3. MANUAL INSTALL CHROME REMOTE DESKTOP (The Fix)
-    - name: Download and Install CRD
+    # 3. ROBUST INSTALL CHROME REMOTE DESKTOP
+    - name: Download and Install CRD (Multi-Mirror)
       run: |
-        $url = "https://dl.google.com/livedownload/chromeremotedesktophost.msi"
-        $output = "crd.msi"
         $userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        $output = "crd.msi"
         
-        Write-Host "Downloading CRD from $url..."
-        # We add the UserAgent so Google doesn't block the request as a bot (Fixes 404)
-        Invoke-WebRequest -Uri $url -OutFile $output -UserAgent $userAgent
+        # LIST OF MIRRORS TO TRY
+        $urls = @(
+          "https://dl.google.com/remote_desktop/chromeremotedesktophost.msi",
+          "https://dl.google.com/edgedl/chrome-remote-desktop/chromeremotedesktophost.msi",
+          "https://dl.google.com/livedownload/chromeremotedesktophost.msi"
+        )
         
-        if (Test-Path $output) {
-          Write-Host "Download Successful. File size: $((Get-Item $output).Length) bytes"
-          
-          Write-Host "Installing MSI..."
-          # /qn = quiet, /norestart = no reboot
-          Start-Process msiexec.exe -ArgumentList "/i $output /qn /norestart" -Wait
-          Write-Host "Installation finished."
-        } else {
-          Write-Error "Download FAILED. The file $output does not exist."
-          exit 1
+        $downloaded = $false
+        
+        foreach ($url in $urls) {
+            if (-not $downloaded) {
+                Write-Host "Trying to download from: $url"
+                try {
+                    Invoke-WebRequest -Uri $url -OutFile $output -UserAgent $userAgent -ErrorAction Stop
+                    if (Test-Path $output) {
+                        $size = (Get-Item $output).Length
+                        if ($size -gt 1000000) { # Verify file is > 1MB (not a corrupted 404 page)
+                            Write-Host "Success! Downloaded from $url ($size bytes)"
+                            $downloaded = $true
+                        }
+                    }
+                } catch {
+                    Write-Host "Failed to download from $url. Trying next..."
+                }
+            }
         }
+        
+        if (-not $downloaded) {
+            Write-Error "CRITICAL: All download mirrors failed. Google may have changed the URL again."
+            exit 1
+        }
+        
+        Write-Host "Installing MSI..."
+        Start-Process msiexec.exe -ArgumentList "/i $output /qn /norestart" -Wait
+        Write-Host "Installation complete."
 
-    # 4. Configure Chrome Remote Desktop (Using your Secret)
+    # 4. Configure Chrome Remote Desktop
     - name: Configure and Start CRD
       env:
         CRD_CMD: ${{ secrets.CRD_POWER_SHELL_COMMAND }}
@@ -54,8 +72,6 @@ jobs:
           Write-Error "Error: CRD_POWER_SHELL_COMMAND secret is missing!"
           exit 1
         }
-        
-        # Run the Google configuration command
         Invoke-Expression $env:CRD_CMD
 
     # 5. Keep Alive (6 Hours)
