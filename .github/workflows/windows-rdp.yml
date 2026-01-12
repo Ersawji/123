@@ -1,4 +1,4 @@
-name: Windows RDP (Final Fix)
+name: Windows RDP (Final Fixed)
 
 on:
   workflow_dispatch:
@@ -13,7 +13,8 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # 2. Install Audio Driver (VB-Cable) - Keeps runner alive if it fails
+    # 2. Install Audio Driver (VB-Cable)
+    # We use continue-on-error so the build NEVER stops here, even if audio fails.
     - name: Install Audio Driver
       run: |
         choco install vb-cable -y
@@ -21,15 +22,12 @@ jobs:
         Start-Service -Name Audiosrv -ErrorAction SilentlyContinue
       continue-on-error: true
 
-    # 3. INSTALL CHROME REMOTE DESKTOP (The missing step!)
-    - name: Install Chrome Remote Desktop Software
+    # 3. INSTALL CHROME REMOTE DESKTOP (Fixed Method)
+    # We use 'choco' to install it. This avoids the 404 URL error.
+    - name: Install Chrome Remote Desktop
       run: |
-        Write-Host "Downloading Chrome Remote Desktop..."
-        Invoke-WebRequest -Uri "https://dl.google.com/livedownload/chromeremotedesktophost.msi" -OutFile "crd.msi"
-        
-        Write-Host "Installing Chrome Remote Desktop..."
-        # /qn = quiet mode (no UI), /norestart = do not restart
-        Start-Process msiexec.exe -ArgumentList "/i crd.msi /qn /norestart" -Wait
+        Write-Host "Installing Chrome Remote Desktop via Chocolatey..."
+        choco install chrome-remote-desktop -y
         
         Write-Host "Installation complete."
 
@@ -43,10 +41,10 @@ jobs:
           exit 1
         }
         
-        # Now that the software is installed, this command will work
+        # Run the Google configuration command
         Invoke-Expression $env:CRD_CMD
 
-    # 5. Keep Alive
+    # 5. Keep Alive (6 Hours)
     - name: Keep Runner Alive
       run: |
         Write-Host "--------------------------------------------------------"
