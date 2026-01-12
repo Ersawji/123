@@ -1,0 +1,57 @@
+name: Windows RDP with Audio Support
+
+on:
+  workflow_dispatch: # Allows you to run this manually from the Actions tab
+
+jobs:
+  rdp-runner:
+    runs-on: windows-latest
+    timeout-minutes: 360 # 6 hours max
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # --- AUDIO SETUP (Experimental) ---
+    - name: Install VB-Cable (Virtual Audio Driver)
+      run: |
+        choco install vb-cable -y
+        Write-Host "VB-Cable installed. Attempting to restart Audio Service..."
+    
+    - name: Enable and Start Windows Audio Service
+      run: |
+        # Set Audio Service to Automatic and Start it
+        Set-Service -Name Audiosrv -StartupType Automatic
+        Start-Service -Name Audiosrv
+        Get-Service -Name Audiosrv | Select-Object Status, StartType
+        
+        # Verify Audio Device presence (Headless VMs often lack this, VB-Cable tries to fix it)
+        Get-PnpDevice -Class AudioEndpoint | Select-Object Status, Class, FriendlyName
+
+    # --- CHROME REMOTE DESKTOP SETUP ---
+    - name: Install and Configure Chrome Remote Desktop
+      env:
+        CRD_CMD: ${{ secrets.CRD_POWER_SHELL_COMMAND }}
+      run: |
+        if (-not $env:CRD_CMD) {
+          Write-Error "Error: CRD_POWER_SHELL_COMMAND secret is missing!"
+          exit 1
+        }
+        
+        # Execute the Google CRD command passed via secrets
+        Invoke-Expression $env:CRD_CMD
+        
+        Write-Host "Chrome Remote Desktop setup complete."
+
+    # --- KEEP ALIVE ---
+    - name: Keep Runner Alive (6 Hours)
+      run: |
+        Write-Host "RDP is ready! connect via https://remotedesktop.google.com/access"
+        Write-Host "This session will stay alive for 6 hours or until you cancel it."
+        $seconds = 21600 # 6 hours
+        while ($seconds -gt 0) {
+          Start-Sleep -Seconds 60
+          $seconds -= 60
+          Write-Host "Time remaining: $([math]::Round($seconds / 60)) minutes..."
+        }
+        
